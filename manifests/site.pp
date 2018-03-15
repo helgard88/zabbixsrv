@@ -1,0 +1,3 @@
+node 'zabbix' {
+  include zabbixsrv
+}

@@ -69,8 +69,10 @@ class zabbixsrv (
   file { "/etc/zabbix/zabbix_server.conf":
     ensure  => file,
     content => template('zabbixsrv/zabbix_server.conf.erb'),
+    owner   => 'zabbix',
+    group   => 'zabbix',
     require => Package['zabbix-web-mysql'],
-    mode    => '0664',
+    mode    => '0666',
   }
 
   file { "/etc/httpd/conf.d/zabbix.conf":

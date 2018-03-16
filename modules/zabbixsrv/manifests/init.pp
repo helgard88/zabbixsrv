@@ -2,11 +2,13 @@ class zabbixsrv (
   $dbhost = 'db.local',
   $dbname = 'zabbix',
   $dbuser = 'zabbix',
-  $dbpassword = 'zabbix',
+  $dbpassword = '3a66ikc_DB',
+  $timezone = 'Europe/Kiev',
 )
 {
 
-  # configure zabbix repo 
+  # configure zabbix repo
+  # insert gpg-key
   file { '/etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX':
     ensure => present,
     owner  => root,
@@ -14,7 +16,8 @@ class zabbixsrv (
     mode   => '0644',
     source => 'puppet:///modules/zabbixsrv/etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX',
   }
-
+->
+  # main repo
   yumrepo { 'zabbix':
     enabled  => 1,
     priority => 1,
@@ -25,8 +28,8 @@ class zabbixsrv (
     gpgkey      => 'file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX',
     require     => File['/etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX'],
   }
-
-  # configure zabbix-nonsupported repo
+->
+  # zabbix-nonsupported repo
   yumrepo { 'zabbix-nonsupported':
     enabled  => 1,
     priority => 1,
@@ -39,31 +42,113 @@ class zabbixsrv (
   }
 
 
+
   package { 'httpd':
     ensure => installed, 
   }
-  
-  package { 'zabbix-server-mysql':
+
+  package { 'mysql':
     ensure => installed,
+  }
+ 
+  package { 'zabbix-server-mysql':
+    ensure   => installed,
     provider => 'yum',
-    require => Yumrepo['zabbix-nonsupported'],
+    require  => Yumrepo['zabbix-nonsupported'],
   }
 
   package { 'zabbix-web-mysql':
-    ensure => installed,
+    ensure   => installed,
     provider => 'yum',
-    require => Package['zabbix-server-mysql'],
+    require  => Package['zabbix-server-mysql'],
 
   }
+
+
+
+  file { "/etc/zabbix/zabbix_server.conf":
+    ensure  => file,
+    content => template('zabbixsrv/zabbix_server.conf.erb'),
+    require => Package['zabbix-web-mysql'],
+    mode    => '0664',
+  }
+
+  file { "/etc/httpd/conf.d/zabbix.conf":
+    ensure  => file,
+    content => template('zabbixsrv/zabbix.conf.erb'),
+    require => Package['httpd'],
+    notify  => Service['httpd'],
+    mode    => '0664',
+  }
+
+  file {'/opt/db_init.sh':
+    ensure  => 'file',
+    content => template('zabbixsrv/db_init.sh.erb'),
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0755', # Use 0700 if it is sensitive
+    notify  => Exec['db_init'],
+  }
+->
+  exec { 'db_init':
+    command => "/bin/bash -c '/opt/db_init.sh'",
+    creates => '/var/log/zabbix/zabbix_server.log',
+    require => Package['mysql']
+  }
   
+  file {'/etc/zabbix/web/zabbix.conf.php':
+    ensure  => file,
+    content => template('zabbixsrv/zabbix.conf.php.erb'),
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0664',
+  }
+
+  exec { 'setsebool':
+    command => "setsebool -P httpd_can_network_connect_db=1",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    require => Package['httpd'],
+  }
+  exec { 'setsebool2':
+    command => "setsebool -P httpd_can_connect_zabbix on",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    require => Package['httpd'],
+  }
+  exec { 'setsebool3':
+    command => "setsebool -P zabbix_can_network on",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    require => Package['httpd'],
+  }
+
   service { 'httpd':
     ensure => running, 
   }
 
   service { 'zabbix-server':
     ensure  => running,
-    require => Package['zabbix-web-mysql'],
+    require => File['/etc/httpd/conf.d/zabbix.conf'],
+  }
+  
+  exec { 'firewall-cmd':
+    command => "firewall-cmd --zone=public --add-port=80/tcp --permanent",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    notify  => Exec['firewall-reload'],
   }
 
-}
+  ->
+  exec { 'firewall-reload':
+    command => "firewall-cmd --reload",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    notify  => Service['firewalld'],
+  }
 
+  ->
+  service { 'firewalld':
+    ensure     => running,
+    enable     => true,
+    hasrestart => true,
+    subscribe  => Exec['firewall-cmd'],
+  }
+
+
+}

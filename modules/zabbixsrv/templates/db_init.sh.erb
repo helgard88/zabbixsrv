@@ -1,0 +1,2 @@
+#!/bin/bash
+zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -h<%= @dbhost %> -u<%= @dbuser %> -p<%= @dbpassword %> <%= @dbname %>

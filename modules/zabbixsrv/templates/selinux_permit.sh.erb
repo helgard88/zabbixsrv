@@ -1,0 +1,8 @@
+#!/bin/bash
+
+setsebool -P httpd_can_network_connect_db=1
+setsebool -P httpd_can_connect_zabbix on
+setsebool -P zabbix_can_network on
+setenforce 0
+ausearch -c 'zabbix_server' --raw | audit2allow -M my-zabbixserver
+semodule -i my-zabbixserver.pp

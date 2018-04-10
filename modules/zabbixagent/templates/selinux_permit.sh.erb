@@ -1,0 +1,5 @@
+#!/bin/bash
+
+setsebool -P zabbix_can_network on
+cat /var/log/audit/audit.log | grep zabbix_agentd | grep denied | audit2allow -M zabbix_agent_setrlimit
+semodule -i zabbix_agent_setrlimit.pp

@@ -1,5 +1,5 @@
 class zabbixsrv (
-  $dbhost = 'db.local',
+  $dbhost = 'db.if083',
   $dbname = 'zabbix',
   $dbuser = 'zabbix',
   $dbpassword = '3a66ikc_DB',
@@ -95,7 +95,7 @@ class zabbixsrv (
   exec { 'db_init':
     command => "/bin/bash -c '/opt/db_init.sh'",
     creates => '/var/log/zabbix/zabbix_server.log',
-    require => Package['mysql']
+    require => Package['mysql'],
   }
   
   file {'/etc/zabbix/web/zabbix.conf.php':
@@ -106,21 +106,28 @@ class zabbixsrv (
     mode    => '0664',
   }
 
-  exec { 'setsebool':
-    command => "setsebool -P httpd_can_network_connect_db=1",
-    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
-    require => Package['httpd'],
+  #selinux crutch =)
+  package { 'policycoreutils-python':
+    ensure   => installed,
+    require => Package['zabbix-server-mysql'],
   }
-  exec { 'setsebool2':
-    command => "setsebool -P httpd_can_connect_zabbix on",
-    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
-    require => Package['httpd'],
+->
+  file {'/opt/selinux_permit.sh':
+    ensure  => 'file',
+    content => template('zabbixsrv/selinux_permit.sh.erb'),
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0755', # Use 0700 if it is sensitive
+    notify  => Exec['selinux'],
+    require => Package['policycoreutils-python'],
   }
-  exec { 'setsebool3':
-    command => "setsebool -P zabbix_can_network on",
-    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
-    require => Package['httpd'],
+->
+  exec { 'selinux':
+    command => "/bin/bash -c '/opt/selinux_permit.sh'",
+    notify  => Service['httpd'],
   }
+  
+
 
   service { 'httpd':
     ensure => running, 
@@ -128,28 +135,35 @@ class zabbixsrv (
 
   service { 'zabbix-server':
     ensure  => running,
-    require => File['/etc/httpd/conf.d/zabbix.conf'],
+    require => File['/opt/selinux_permit.sh'],
   }
   
-  exec { 'firewall-cmd':
+
+
+  #firewall 
+  exec { 'firewall-cmd-http':
     command => "firewall-cmd --zone=public --add-port=80/tcp --permanent",
+    path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
+    notify  => Exec['firewall-cmd-zabbix'],
+  }
+  ->
+  exec { 'firewall-cmd-zabbix':
+    command => "firewall-cmd --zone=public --add-port=10050/tcp --permanent",
     path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
     notify  => Exec['firewall-reload'],
   }
-
   ->
   exec { 'firewall-reload':
     command => "firewall-cmd --reload",
     path    => '/usr/bin:/usr/sbin:/bin:/usr/local/bin',
     notify  => Service['firewalld'],
   }
-
   ->
   service { 'firewalld':
     ensure     => running,
     enable     => true,
     hasrestart => true,
-    subscribe  => Exec['firewall-cmd'],
+    subscribe  => Exec['firewall-cmd-http'],
   }
 
 
